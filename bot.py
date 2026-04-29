@@ -1,4 +1,6 @@
 import asyncio
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from aiogram import Bot, Dispatcher
 from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton
 from aiogram.filters import Command
@@ -130,11 +132,29 @@ async def check_new_ads(bot): #Фоновая функция
         await asyncio.sleep(300)  # 5 минут
 
 async def main():
+
+    threading.Thread(target=run_web).start()
+
     init_db() #создаём БД (если её нет)
 
     asyncio.create_task(check_new_ads(bot))  #бот отвечает пользователям и проверяет объявления
 
     await dp.start_polling(bot) #запускаем бота
+
+
+
+class Handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"OK")
+
+def run_web():
+    server = HTTPServer(("0.0.0.0", 10000), Handler)
+    server.serve_forever()
+
+threading.Thread(target=run_web).start()
+
 
 
 if __name__ == "__main__":
