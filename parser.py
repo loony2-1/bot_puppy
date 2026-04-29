@@ -33,12 +33,7 @@ def get_ad_data(link):
             if "Порода" in text:
                 breed_text = text.replace("Порода:", "").strip().lower()
 
-                if "шпиц" in breed_text:
-                    breed = "шпиц"
-                elif "пудель" in breed_text:
-                    breed = "пудель"
-                elif "болонка" in breed_text:
-                    breed = "болонка"
+                breed = breed_text.lower().strip()
 
             # ---- ГОРОД ----
             if "Место" in text:
