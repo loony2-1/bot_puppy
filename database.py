@@ -1,7 +1,7 @@
 import psycopg2
 import os
 
-DATABASE_URL = os.getenv("postgresql://puppy_bot_db_user:RBd8XY8nUfmFxtM0rEg356KrtB8RuNaJ@dpg-d7qb3l3rjlhs73ebsfcg-a.oregon-postgres.render.com/puppy_bot_db")
+DATABASE_URL = os.getenv("DATABASE_URL")
 
 
 def get_conn():
