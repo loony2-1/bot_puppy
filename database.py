@@ -1,110 +1,100 @@
-import sqlite3
+import psycopg2
+import os
+
+DATABASE_URL = os.getenv("DATABASE_URL")
+
+
+def get_conn():
+    return psycopg2.connect(DATABASE_URL)
+
 
 def init_db():
-    conn = sqlite3.connect("users.db")
-    cursor = conn.cursor()
+    conn = get_conn()
+    cur = conn.cursor()
 
-    # таблица пользователей
-    cursor.execute("""
+    cur.execute("""
     CREATE TABLE IF NOT EXISTS users (
-        user_id INTEGER PRIMARY KEY,
+        user_id BIGINT PRIMARY KEY,
         city TEXT,
         breed TEXT
     )
     """)
 
-    # таблица отправленных объявлений
-    cursor.execute("""
+    cur.execute("""
     CREATE TABLE IF NOT EXISTS sent_ads (
-        user_id INTEGER,
+        user_id BIGINT,
         link TEXT,
         PRIMARY KEY (user_id, link)
     )
     """)
 
-    cursor.execute("""
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_user_link
-    ON sent_ads(user_id, link)
-    """)
-
     conn.commit()
+    cur.close()
     conn.close()
-    
-def save_city(user_id, city):
-    conn = sqlite3.connect("users.db")
-    cursor = conn.cursor()
 
-    cursor.execute("""
+
+def save_city(user_id, city):
+    conn = get_conn()
+    cur = conn.cursor()
+
+    cur.execute("""
     INSERT INTO users (user_id, city)
-    VALUES (?, ?)
-    ON CONFLICT(user_id) DO UPDATE SET city=excluded.city
+    VALUES (%s, %s)
+    ON CONFLICT (user_id)
+    DO UPDATE SET city = EXCLUDED.city
     """, (user_id, city))
 
     conn.commit()
+    cur.close()
     conn.close()
 
 
 def save_breed(user_id, breed):
-    conn = sqlite3.connect("users.db")
-    cursor = conn.cursor()
+    conn = get_conn()
+    cur = conn.cursor()
 
-    cursor.execute("""
-    UPDATE users SET breed = ? WHERE user_id = ?
-    """, (breed, user_id))
+    cur.execute("""
+    UPDATE users SET breed = %s WHERE user_id = %s
+    """, (breed.lower(), user_id))
 
     conn.commit()
+    cur.close()
     conn.close()
 
-
-def get_user(user_id):
-    conn = sqlite3.connect("users.db")
-    cursor = conn.cursor()
-
-    cursor.execute("SELECT city, breed FROM users WHERE user_id = ?", (user_id,))
-    result = cursor.fetchone()
-
-    conn.close()
-    return result
 
 def get_all_users():
-    conn = sqlite3.connect("users.db")
-    cursor = conn.cursor()
+    conn = get_conn()
+    cur = conn.cursor()
 
-    cursor.execute("SELECT user_id, city, breed FROM users WHERE breed IS NOT NULL")
-    users = cursor.fetchall()
+    cur.execute("""
+    SELECT user_id, city, breed
+    FROM users
+    WHERE breed IS NOT NULL
+    """)
 
+    users = cur.fetchall()
+
+    cur.close()
     conn.close()
     return users
 
-def is_sent(user_id, link): #Проверка: отправляли ли уже
-    conn = sqlite3.connect("users.db")
-    cursor = conn.cursor()
-
-    cursor.execute(
-        "SELECT 1 FROM sent_ads WHERE user_id = ? AND link = ?",
-        (user_id, link)
-    )
-
-    result = cursor.fetchone()
-    conn.close()
-
-    return result is not None
 
 def save_sent_if_new(user_id, link):
-    conn = sqlite3.connect("users.db")
-    cursor = conn.cursor()
+    conn = get_conn()
+    cur = conn.cursor()
 
     try:
-        cursor.execute(
-            "INSERT INTO sent_ads (user_id, link) VALUES (?, ?)",
-            (user_id, link)
-        )
-        conn.commit()
-        return True  # новое объявление
+        cur.execute("""
+        INSERT INTO sent_ads (user_id, link)
+        VALUES (%s, %s)
+        """, (user_id, link))
 
-    except sqlite3.IntegrityError:
-        return False  # уже было
+        conn.commit()
+        return True
+
+    except:
+        return False
 
     finally:
+        cur.close()
         conn.close()
-

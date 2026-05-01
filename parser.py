@@ -1,123 +1,128 @@
-import requests # сходить на сайт и скачать страницу
-from bs4 import BeautifulSoup #превращает HTML сайта в удобную структуру
+import aiohttp
+import asyncio
 import time
+from bs4 import BeautifulSoup
 
-global_cache = {}   # кеш результатов поиска
-city_cache = {}     # кеш данных ОДНОЙ ссылки (город + порода)
-cache_time = {}     # время жизни кеша
+global_cache = {}
+city_cache = {}
+cache_time = {}
 CACHE_TTL = 600
 
 
-def get_ad_data(link):
-    if link in city_cache:
-        return city_cache[link]
-
+# ---------------- FETCH ----------------
+async def fetch(session, url): #скачивает HTML страницы
     try:
         headers = {"User-Agent": "Mozilla/5.0"}
-        response = requests.get(link, headers=headers, timeout=5)
+        async with session.get(url, headers=headers, timeout=5) as response: #максимум 5 секунд ожидания
+            if response.status != 200:
+                return None
+            return await response.text() #получаем HTML страницы
+    except:
+        return None
 
-        if response.status_code != 200:
-            return None, None
 
-        soup = BeautifulSoup(response.text, "html.parser")
+# ---------------- GET AD DATA ----------------
+async def get_ad_data(session, link):
+    if link in city_cache: #если уже парсили — не идём в интернет
+        return city_cache[link]
 
-        city = None
-        breed = None
-
-        # 🔥 ищем ВСЕ строки с параметрами (более стабильно)
-        for item in soup.find_all(["span", "li", "div", "p"]):
-
-            text = item.get_text(" ", strip=True)
-
-            # ---- ПОРOДА ----
-            if "Порода" in text:
-                breed_text = text.replace("Порода:", "").strip().lower()
-
-                breed = breed_text.lower().strip()
-
-            # ---- ГОРОД ----
-            if "Место" in text:
-                city_text = text.replace("Место:", "").strip()
-
-                if "минск" in city_text.lower():
-                    city = "Минск"
-                elif "гомель" in city_text.lower():
-                    city = "Гомель"
-                elif "брест" in city_text.lower():
-                    city = "Брест"
-
-        city_cache[link] = (city, breed)
-
-        if len(city_cache) > 500:
-            city_cache.clear()
-
-        return city, breed
-
-    except Exception as e:
-        print("Ошибка парсинга:", e)
+    html = await fetch(session, link) #Скачиваем страницу
+    if not html:
         return None, None
 
+    soup = BeautifulSoup(html, "html.parser") #Парсим HTML
 
-def search_puppies(keyword, city):
-    url = "https://www.doska.by/animals/dogs/"  # адрес сайта, который мы будем “парсить”
+    city = None
+    breed = None
 
-    headers = {"User-Agent": "Mozilla/5.0"}
+    for item in soup.find_all(["span", "li", "div", "p"]): #Ищем данные
+        text = item.get_text(" ", strip=True)
 
-    response = requests.get(url, headers=headers) #ответ от сайта
+        if "Порода" in text:
+            breed = text.replace("Порода:", "").strip().lower()
 
+        if "Место" in text:
+            city_text = text.replace("Место:", "").strip().lower()
 
-    if response.status_code != 200:
-        print("Ошибка загрузки")
-        return []
-    
-    soup = BeautifulSoup(response.text, "html.parser") #response.text → это HTML (огромный текст) BeautifulSoup превращает его в “дерево”
+            if "минск" in city_text:
+                city = "Минск"
+            elif "гомель" in city_text:
+                city = "Гомель"
+            elif "брест" in city_text:
+                city = "Брест"
 
-    results = [] #сюда будем складывать ссылки
+    city_cache[link] = (city, breed) #Сохраняем в кеш
 
-    links = soup.select("a[href*='.html']")  # берём все ссылки
+    if len(city_cache) > 500:
+        city_cache.clear()
 
-    for a in links:
-        title = " ".join(a.text.split()).strip()
-        link = a.get("href")
-
-        # пропускаем пустые значения
-        if not title or not link:
-            continue
-
-        # убираем мусорные заголовки
-        if len(title) < 10:
-            continue
-
-        # ссылка
-        if link.startswith("/"):
-            link = "https://www.doska.by" + link
-        elif not link.startswith("http"):
-            link = "https://www.doska.by/" + link
+    return city, breed
 
 
-        ad_city, ad_breed = get_ad_data(link)
-        #print(ad_city, ad_breed)
-        # фильтр по городу
-        if city and (not ad_city or ad_city.lower() != city.lower()):
-            continue
+# ---------------- MAIN SEARCH ----------------
+async def search_puppies(keyword, city):
+    url = "https://www.doska.by/animals/dogs/"
 
-        # фильтр по породе
-        if not ad_breed or keyword.lower() not in ad_breed.lower():
-            continue
+    async with aiohttp.ClientSession() as session: #один клиент на все запросы (важно для скорости)
+        html = await fetch(session, url) #Получаем страницу со списком объявлений
 
-        results.append((title, link))
-    return results
+        if not html:
+            return []
 
-def search_puppies_smart(breed, city):
-    key = (breed.lower(), city.lower() if city else None)
+        soup = BeautifulSoup(html, "html.parser")
+        links = soup.select("a[href*='.html']") #берём все ссылки на объявления
+
+        tasks = [] #список async задач
+        prepared = [] #хранит (title, link)
+
+        for a in links:
+            title = " ".join(a.text.split()).strip()
+            link = a.get("href")
+
+            if not title or not link:
+                continue
+
+            if len(title) < 10:
+                continue
+
+            if link.startswith("/"):
+                link = "https://www.doska.by" + link
+            elif not link.startswith("http"):
+                link = "https://www.doska.by/" + link
+
+            prepared.append((title, link))
+            tasks.append(get_ad_data(session, link)) #Заполняем задачи
+
+        results_data = await asyncio.gather(*tasks) #запускает ВСЕ запросы одновременно
+
+        results = []
+
+        for (title, link), (ad_city, ad_breed) in zip(prepared, results_data): #Обработка результатов
+
+            # фильтр по городу
+            if city and (not ad_city or ad_city.lower() != city.lower()):
+                continue
+
+            # фильтр по породе
+            if not ad_breed or keyword.lower() not in ad_breed.lower():
+                continue
+
+            results.append((title, link))
+
+        return results
+
+
+# ---------------- SMART CACHE ----------------
+async def search_puppies_smart(breed, city):
+    key = (breed.lower(), city.lower() if city else None) #Ключ кеша
     now = time.time()
 
     if key in global_cache:
-        if now - cache_time.get(key, 0) < CACHE_TTL:
+        if now - cache_time.get(key, 0) < CACHE_TTL: #если прошло меньше 10 минут — возвращаем кеш
             return global_cache[key]
 
     try:
-        results = search_puppies(breed, city)
+        results = await search_puppies(breed, city)
     except Exception as e:
         print("Search error:", e)
         return []
