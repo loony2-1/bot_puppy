@@ -1,5 +1,9 @@
 import asyncio
 import threading
+import logging
+
+logging.basicConfig(level=logging.INFO)
+
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
 from aiogram import Bot, Dispatcher
@@ -154,7 +158,16 @@ async def main():
     # background task
     asyncio.create_task(check_new_ads()) #запускает фоновый парсер
 
-    await dp.start_polling(bot) #бот начинает работать
+    while True:
+        try:
+            logging.info("Bot started polling")
+
+            await dp.start_polling(bot)
+
+        except Exception as e:
+            logging.error(f"Polling crashed: {e}")
+
+            await asyncio.sleep(5)
 
 
 if __name__ == "__main__":
