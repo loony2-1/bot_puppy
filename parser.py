@@ -6,7 +6,9 @@ from bs4 import BeautifulSoup
 global_cache = {}
 city_cache = {}
 cache_time = {}
+
 CACHE_TTL = 600
+sem = asyncio.Semaphore(10)
 
 
 # ---------------- FETCH ----------------
@@ -20,7 +22,10 @@ async def fetch(session, url): #скачивает HTML страницы
     except:
         return None
 
-
+async def get_ad_data_safe(session, link):
+    async with sem:
+        return await get_ad_data(session, link)
+    
 # ---------------- GET AD DATA ----------------
 async def get_ad_data(session, link):
     if link in city_cache: #если уже парсили — не идём в интернет
@@ -91,7 +96,7 @@ async def search_puppies(keyword, city):
                 link = "https://www.doska.by/" + link
 
             prepared.append((title, link))
-            tasks.append(get_ad_data(session, link)) #Заполняем задачи
+            tasks.append(get_ad_data_safe(session, link)) #Заполняем задачи
 
         results_data = await asyncio.gather(*tasks) #запускает ВСЕ запросы одновременно
 
