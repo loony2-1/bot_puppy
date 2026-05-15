@@ -44,7 +44,11 @@ async def get_ad_data(session, link):
         text = item.get_text(" ", strip=True)
 
         if "Порода" in text:
-            breed = text.replace("Порода:", "").strip().lower()
+            if "порода:" in text.lower():
+                try:
+                    breed = text.lower().split("порода:")[1].split("возраст")[0].strip()
+                except:
+                    pass
 
         if "Место" in text:
             city_text = text.replace("Место:", "").strip().lower()
